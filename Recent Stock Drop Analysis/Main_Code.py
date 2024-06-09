@@ -1,6 +1,6 @@
 import pandas as pd
 import yfinance as yf
-from functions_stock_analysis import calculate_rsi, calculate_bollinger_bands, calculate_atr, date_format, ranking
+from functions import calculate_rsi, calculate_bollinger_bands, calculate_atr, date_format, ranking
 from matplotlib.dates import date2num
 from sklearn.linear_model import LinearRegression
 import numpy as np
