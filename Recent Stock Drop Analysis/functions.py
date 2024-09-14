@@ -88,33 +88,30 @@ def calculate_stochastic_oscillator(data, k_window=14, d_window=3):
     return data[['%K', '%D']]
 
 def calculate_obv(data):
-    # Calculate On-Balance Volume
+    """Calculate On-Balance Volume (OBV)"""
     data['OBV'] = (np.sign(data['Close'].diff()) * data['Volume']).cumsum()
-
     return data['OBV']
 
-def calculate_fibonacci_retracement(data, price='Close'):
-    # Calculate the Fibonacci retracement levels
+def calculate_fibonacci_retracement(data, price='Close', window=None):
+    """Calculate Fibonacci retracement levels."""
+    if window:
+        data = data[-window:]  # Apply window for short/medium/long-term strategies
+    
     max_price = data[price].max()
     min_price = data[price].min()
-
     diff = max_price - min_price
-    level_1 = max_price - 0.236 * diff
-    level_2 = max_price - 0.382 * diff
-    level_3 = max_price - 0.5 * diff
-    level_4 = max_price - 0.618 * diff
-
+    
     return {
-        "23.6%": level_1,
-        "38.2%": level_2,
-        "50%": level_3,
-        "61.8%": level_4
+        "23.6%": max_price - 0.236 * diff,
+        "38.2%": max_price - 0.382 * diff,
+        "50%": max_price - 0.5 * diff,
+        "61.8%": max_price - 0.618 * diff
     }
 
-def calculate_50dma(data):
-    # Calculate 50-Day Moving Average
-    data['50DMA'] = data['Close'].rolling(window=50).mean()
-    return data
+def calculate_50dma(data, window=50):
+    """Calculate 50-Day Moving Average"""
+    data['50DMA'] = data['Close'].rolling(window=window).mean()
+    return data['50DMA']
 
 def date_format(time_dif):
     ans = date.today() - timedelta(days=time_dif)
@@ -153,7 +150,7 @@ def ranking_short_term(data, weights):
     """
     
     # Drop rows with NaNs in the required columns
-    data = data.dropna(subset=["RSI", "MACD", "Signal_Line", "ATR", "%K", "%D", "Volume", "Slope"])
+    data = data.dropna(subset=["RSI", "MACD", "Signal_Line", "ATR", "%K", "%D", "Volume", "Slope", "OBV"])
 
     # Initialize the ranking column
     data["Ranking"] = 0
@@ -184,15 +181,24 @@ def ranking_short_term(data, weights):
     slope_labels = [10, 7, 3, 1]  # Higher slope gets a better score
     data["Slope_Score"] = pd.cut(data["Slope"], bins=bins_slope, labels=slope_labels)
 
+    # OBV: Higher OBV indicates stronger buying volume
+    bins_obv = [0, 1e5, 1e6, 1e7, float('inf')]  # Custom OBV tiers
+    obv_labels = [10, 5, 3, 1]  # Larger OBV gets a better score
+    data["OBV_Score"] = pd.cut(data["OBV"], bins=bins_obv, labels=obv_labels)
+
+    # Replace NaNs with worst possible score before converting to int
+    score_columns = ["RSI_Score", "MACD_Score", "ATR_Score", "Stochastic_Score", "Volume_Score", "Slope_Score", "OBV_Score"]
+    data[score_columns] = data[score_columns].fillna(10)  # Assuming worst score is 10
+
     # Total score combines all factor scores with weights applied
-    # Weights are passed as arguments for flexibility
     data["Total_Score"] = (
         data["RSI_Score"].astype(int) * weights['RSI'] +
         data["MACD_Score"].astype(int) * weights['MACD'] +
         data["ATR_Score"].astype(int) * weights['ATR'] +
         data["Stochastic_Score"].astype(int) * weights['Stochastic'] +
         data["Volume_Score"].astype(int) * weights['Volume'] +
-        data["Slope_Score"].astype(int) * weights['Slope']
+        data["Slope_Score"].astype(int) * weights['Slope'] +
+        data["OBV_Score"].astype(int) * weights.get('OBV', 0)  # Default to 0 if not weighted
     )
 
     # Sort by total score (lower is better)
@@ -309,6 +315,8 @@ def get_djia_tickers():
     tickers = djia_table['Symbol'].tolist()
     
     return tickers
+
+
 
 
     
