@@ -140,7 +140,18 @@ def ranking(data):
     data = data.reset_index(drop=True)
     return data
 
-def ranking_short_term(data):
+def ranking_short_term(data, weights):
+    """
+    Ranks the data based on various technical indicators with custom weights.
+    
+    Parameters:
+    data (DataFrame): DataFrame containing the stock data and calculated metrics.
+    weights (dict): Dictionary of weights for each factor.
+    
+    Returns:
+    DataFrame: Ranked DataFrame with total scores based on the input weights.
+    """
+    
     # Drop rows with NaNs in the required columns
     data = data.dropna(subset=["RSI", "MACD", "Signal_Line", "ATR", "%K", "%D", "Volume", "Slope"])
 
@@ -174,14 +185,14 @@ def ranking_short_term(data):
     data["Slope_Score"] = pd.cut(data["Slope"], bins=bins_slope, labels=slope_labels)
 
     # Total score combines all factor scores with weights applied
-    # Example of weight assignment: RSI (25%), MACD (20%), ATR (15%), Stochastic (10%), Volume (10%), Slope (20%)
+    # Weights are passed as arguments for flexibility
     data["Total_Score"] = (
-        data["RSI_Score"].astype(int) * 0.25 +
-        data["MACD_Score"].astype(int) * 0.20 +
-        data["ATR_Score"].astype(int) * 0.15 +
-        data["Stochastic_Score"].astype(int) * 0.10 +
-        data["Volume_Score"].astype(int) * 0.10 +
-        data["Slope_Score"].astype(int) * 0.20  # Weight for slope
+        data["RSI_Score"].astype(int) * weights['RSI'] +
+        data["MACD_Score"].astype(int) * weights['MACD'] +
+        data["ATR_Score"].astype(int) * weights['ATR'] +
+        data["Stochastic_Score"].astype(int) * weights['Stochastic'] +
+        data["Volume_Score"].astype(int) * weights['Volume'] +
+        data["Slope_Score"].astype(int) * weights['Slope']
     )
 
     # Sort by total score (lower is better)
@@ -215,13 +226,13 @@ def calculate_statistics(data, label):
         print(f"  Maximum: {data[period].max():.2f}")
 
 # Function to plot cumulative frequency (CDF)
-def plot_cumulative_frequency(data, label, ax):
+def plot_cumulative_frequency(data, label, ax, ticker):
     for period in ['1 day price difference', '3 day price difference', '7 day price difference', '14 day price difference']:
         sorted_data = data[period].dropna().sort_values()
         cumulative = sorted_data.rank(method='first') / len(sorted_data)  # Cumulative distribution as ranks
         ax.plot(sorted_data, cumulative, label=period)
     
-    ax.set_title(f'{label} Signals CDF')
+    ax.set_title(f'{ticker} {label} Signals CDF')
     ax.set_xlabel('Price Change')
     ax.set_ylabel('Cumulative Frequency')
     ax.legend()
