@@ -10,7 +10,9 @@ from functions_stock_analysis import (
     calculate_stochastic_oscillator,
     calculate_price_changes,
     calculate_statistics,
-    linear_regression_slope
+    linear_regression_slope,
+    calculate_obv,
+    calculate_50dma
 )
 
 # Stock index retrieval functions
@@ -31,15 +33,16 @@ from functions_stock_analysis import (
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-# Read the space-separated ticker symbols from the file into a DataFrame
+
+# Read stock tickers from popular indices
 SNP500 = pd.DataFrame(get_snp500_tickers())
 NAS100 = pd.DataFrame(get_nasdaq100_tickers())
 DOW30 = pd.DataFrame(get_djia_tickers())
 
-# Stock Tickers Append
+# Combine tickers and limit for testing purposes
 Ticker_Listing = pd.concat([SNP500, NAS100, DOW30], ignore_index=True)
-Ticker_Listing = Ticker_Listing[0:30] # Testing (So testing doesn#t take too long)
-Ticker_Listing = Ticker_Listing.rename(columns = {0: "Ticker"}) 
+#Ticker_Listing = Ticker_Listing[0:30]  # Limit to 30 tickers for faster testing
+Ticker_Listing = Ticker_Listing.rename(columns={0: "Ticker"}) 
 Ticker_Listing = Ticker_Listing.drop_duplicates()
 
 # Ask the user which strategy they want to run
@@ -57,12 +60,13 @@ if strategy == "short":
     macd_signal_window = 7
     atr_window = 7
     end_day = 0
+    recent_days = 60
     weights = {
-        'RSI': 0.35,
+        'RSI': 0.30,
         'MACD': 0.20,
         'ATR': 0.10,
-        'Stochastic': 0.15,
-        'Volume': 0.10,
+        'Stochastic': 0.10,
+        'Volume': 0.20,
         'Slope': 0.10
     }
 
@@ -77,12 +81,13 @@ elif strategy == "medium":
     macd_signal_window = 9
     atr_window = 14
     end_day = 0
+    recent_days = 120
     weights = {
         'RSI': 0.25,
-        'MACD': 0.25,
+        'MACD': 0.20,
         'ATR': 0.15,
         'Stochastic': 0.10,
-        'Volume': 0.10,
+        'Volume': 0.15,
         'Slope': 0.15
     }
 
@@ -97,13 +102,14 @@ elif strategy == "long":
     macd_signal_window = 18
     atr_window = 21
     end_day = 0
+    recent_days = 180
     weights = {
         'RSI': 0.10,
-        'MACD': 0.15,
+        'MACD': 0.10,
         'ATR': 0.20,
         'Stochastic': 0.05,
         'Volume': 0.10,
-        'Slope': 0.40
+        'Slope': 0.45
     }
 
 else:
@@ -118,19 +124,18 @@ else:
     macd_signal_window = 9
     atr_window = 14
     end_day = 0
+    recent_days = 120
     weights = {
         'RSI': 0.25,
-        'MACD': 0.25,
+        'MACD': 0.20,
         'ATR': 0.15,
         'Stochastic': 0.10,
-        'Volume': 0.10,
+        'Volume': 0.15,
         'Slope': 0.15
     }
 
-
-
 # DataFrame to hold signals
-signals_df = pd.DataFrame(columns=["Ticker", "Latest_Date", "RSI", "MACD", "Signal_Line", "Volume", "ATR", "%K", "%D"])
+signals_df = pd.DataFrame(columns=["Ticker", "Latest_Date", "RSI", "MACD", "Signal_Line", "Volume", "ATR", "%K", "%D", "Slope", "OBV"])
 
 for ticker in Ticker_Listing["Ticker"]:
     # Retrieve Stock Data
@@ -139,17 +144,21 @@ for ticker in Ticker_Listing["Ticker"]:
     if len(data) == 0:
         continue
     
-    # Calculate RSI, Bollinger Bands, MACD, ATR, Stochastic Oscillator
+    # Calculate technical indicators
     data['RSI'] = calculate_rsi(data, window=rsi_window)
     bollinger_data = calculate_bollinger_bands(data, window=bb_window, num_std_dev=bb_std)
     macd_data = calculate_macd(data, short_window=macd_short_window, long_window=macd_long_window, signal_window=macd_signal_window)
-    atr_data = calculate_atr(data, window=14)
+    atr_data = calculate_atr(data, window=atr_window)
     stochastic_data = calculate_stochastic_oscillator(data, k_window=14, d_window=3)
     
-    # Calculate Linear Regression Slope using our hardcoded function
+    # Calculate Linear Regression Slope
     X = np.arange(len(data))  # Time index as independent variable
     Y = data['Close'].values  # Closing prices as dependent variable
     slope, intercept = linear_regression_slope(X, Y)
+    
+    # Calculate OBV and 50DMA
+    obv = calculate_obv(data).iloc[-1]  # Get the latest OBV value
+    data['50DMA'] = calculate_50dma(data)
     
     # Check for buy signals and add to signals_df
     if not data[data["RSI"] < 30].empty and not data[data["Close"] < bollinger_data["Lower_Band"]].empty:
@@ -174,12 +183,12 @@ for ticker in Ticker_Listing["Ticker"]:
                 "ATR": [atr],
                 "%K": [stochastic_k],
                 "%D": [stochastic_d],
-                "Slope": [slope]  # Add the linear regression slope to the dataframe
+                "Slope": [slope],  # Add the linear regression slope to the dataframe
+                "OBV": [obv]
             })
 
             # Concatenate the new row to the signals_df DataFrame
             signals_df = pd.concat([signals_df, new_row], ignore_index=True)
-
 
 # After collecting all the data, apply the ranking function
 signals_df = ranking_short_term(signals_df, weights)
@@ -223,7 +232,13 @@ while ans:
 
             # Recalculate MACD
             macd_data = calculate_macd(plot_data, short_window=macd_short_window, long_window=macd_long_window, signal_window=macd_signal_window)
-
+            
+            # Recalculate OBV
+            obv_data = calculate_obv(plot_data)
+            
+            # Recalculate 50DMA
+            plot_data['50DMA'] = calculate_50dma(plot_data)
+            
             # Identify buy (bullish) and sell (bearish) signals
             macd_line = macd_data['MACD']
             signal_line = macd_data['Signal_Line']
@@ -245,7 +260,7 @@ while ans:
             calculate_statistics(sell_data, 'Sell')
 
             # Create subplots for Buy and Sell signals' CDF
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6), dpi = 250)
             plot_cumulative_frequency(buy_data, 'Buy', ax1, ticker)
             plot_cumulative_frequency(sell_data, 'Sell', ax2, ticker)
             plt.tight_layout()
@@ -253,13 +268,14 @@ while ans:
 
             ### Plotting Code Starts Here ###
 
-            # Define the last 60 days' data for zoomed-in plots
-            last_60_days_data = plot_data[-60:]
-            last_60_days_macd = macd_data[-60:]
-            
-            # Create a GridSpec layout: 2 rows, 2 columns, with 2/3 for the left and 1/3 for the right
-            fig = plt.figure(figsize=(16, 10), dpi = 250)
-            gs = gridspec.GridSpec(2, 2, width_ratios=[2, 1], height_ratios=[2, 2])
+            # Define the last N days' data for zoomed-in plots (N is determined by the recent_days variable)
+            last_recent_days_data = plot_data[-recent_days:]
+            last_recent_days_macd = macd_data[-recent_days:]
+            last_recent_days_obv = obv_data[-recent_days:]  # Ensure OBV for the last 'recent_days' window
+
+            # Create a GridSpec layout with different height ratios for each subplot
+            fig = plt.figure(figsize=(16, 10), dpi= 500)
+            gs = gridspec.GridSpec(3, 2, width_ratios=[2, 1], height_ratios=[3, 2, 1])  # OBV 1/6th, others 3/6 and 2/6
 
             # Top left subplot (full price and Bollinger Bands)
             ax1 = fig.add_subplot(gs[0, 0])
@@ -267,15 +283,14 @@ while ans:
             ax1.plot(bollinger_data['Upper_Band'], 'b--', label='Upper Bollinger Band', alpha=0.5)
             ax1.plot(bollinger_data['Lower_Band'], 'b--', label='Lower Bollinger Band', alpha=0.5)
             ax1.plot(bollinger_data['Middle_Band'], 'r--', label='Middle Bollinger Band')
-            
+            ax1.plot(plot_data['50DMA'], color='orange', label='50DMA')  # Add 50DMA
+
             # Highlight the specific date (signal date)
             specific_date = top_25_signals_df.loc[top_25_signals_df['Ticker'] == ticker, "Latest_Date"]
             ax1.axvline(x=specific_date.iloc[0], color='green', linestyle='--', label=f'Signal Date: {specific_date.iloc[0].date()}')
 
             # Set x-axis limits to avoid empty space
             ax1.set_xlim([plot_data.index.min(), plot_data.index.max()])
-
-            # Set labels and title for top subplot
             ax1.set_title(f'{ticker} Stock Analysis')
             ax1.set_ylabel('Price')
             ax1.legend(loc='upper left')
@@ -283,70 +298,82 @@ while ans:
 
             # Bottom left subplot (MACD and Signal Line with Crossovers)
             ax2 = fig.add_subplot(gs[1, 0])
-            ax2.plot(macd_data['MACD'], label='MACD', color='green', linewidth=1)  # Decreased thickness
-            ax2.plot(macd_data['Signal_Line'], label='Signal Line', color='red', linewidth=1)  # Decreased thickness
+            ax2.plot(macd_data['MACD'], label='MACD', color='green', linewidth=1)
+            ax2.plot(macd_data['Signal_Line'], label='Signal Line', color='red', linewidth=1)
 
-            # Highlight crossovers with buy signals (blue) and sell signals (purple)
+            # Highlight crossovers
             ax2.scatter(buy_signals, macd_line.loc[buy_signals], color='blue', label='Bullish Crossover', marker='^', zorder=5)
             ax2.scatter(sell_signals, macd_line.loc[sell_signals], color='purple', label='Bearish Crossover', marker='v', zorder=5)
 
-            # Shade the area between MACD and Signal Line
-            ax2.fill_between(macd_data.index, macd_line, signal_line, where=(macd_line > signal_line), color='green', alpha=0.3, interpolate=True)
-            ax2.fill_between(macd_data.index, macd_line, signal_line, where=(macd_line < signal_line), color='red', alpha=0.3, interpolate=True)
+            # Shade MACD regions
+            ax2.fill_between(macd_data.index, macd_line, signal_line, where=(macd_line > signal_line), color='green', alpha=0.3)
+            ax2.fill_between(macd_data.index, macd_line, signal_line, where=(macd_line < signal_line), color='red', alpha=0.3)
 
-            # Set x-axis limits to avoid empty space
+            # Set x-axis limits
             ax2.set_xlim([macd_data.index.min(), macd_data.index.max()])
-
-            # Set labels and title for bottom subplot
             ax2.set_xlabel('Date')
             ax2.set_ylabel('MACD')
             ax2.legend(loc='upper left')
             ax2.grid(True)
 
-            # Top right subplot (Zoomed-in price and Bollinger Bands for the last 60 days)
+            # Top right subplot (Zoomed-in price and Bollinger Bands for the last N days)
             ax3 = fig.add_subplot(gs[0, 1])
-            ax3.plot(last_60_days_data['Close'], color='black', label='Close Price')
-            ax3.plot(bollinger_data['Upper_Band'][-60:], 'b--', label='Upper Bollinger Band', alpha=0.5)
-            ax3.plot(bollinger_data['Lower_Band'][-60:], 'b--', label='Lower Bollinger Band', alpha=0.5)
-            ax3.plot(bollinger_data['Middle_Band'][-60:], 'r--', label='Middle Bollinger Band')
+            ax3.plot(last_recent_days_data['Close'], color='black', label='Close Price')
+            ax3.plot(bollinger_data['Upper_Band'][-recent_days:], 'b--', label='Upper Bollinger Band', alpha=0.5)
+            ax3.plot(bollinger_data['Lower_Band'][-recent_days:], 'b--', label='Lower Bollinger Band', alpha=0.5)
+            ax3.plot(bollinger_data['Middle_Band'][-recent_days:], 'r--', label='Middle Bollinger Band')
 
-            ax3.set_title('Last 60 Days Price with Bollinger Bands')
+            ax3.set_title(f'Last {recent_days} Days Price with Bollinger Bands')
             ax3.set_ylabel('Price')
             ax3.grid(True)
-
-            # Set x-axis limits for the last 60 days
-            ax3.set_xlim([last_60_days_data.index.min(), last_60_days_data.index.max()])
-
-            # Set the x-axis date labels to vertical
+            ax3.set_xlim([last_recent_days_data.index.min(), last_recent_days_data.index.max()])
             plt.xticks(rotation=90)
 
-            # Bottom right subplot (Zoomed-in MACD for the last 60 days)
+            # Bottom right subplot (Zoomed-in MACD for the last N days)
             ax4 = fig.add_subplot(gs[1, 1])
 
-            # Filter buy and sell signals to only include those within the last 60 days
-            filtered_buy_signals = buy_signals[buy_signals.isin(last_60_days_macd.index)]
-            filtered_sell_signals = sell_signals[sell_signals.isin(last_60_days_macd.index)]
+            filtered_buy_signals = buy_signals[buy_signals.isin(last_recent_days_macd.index)]
+            filtered_sell_signals = sell_signals[sell_signals.isin(last_recent_days_macd.index)]
 
-            # Plot the crossovers for the last 60 days using filtered signals
-            ax4.scatter(filtered_buy_signals, last_60_days_macd['MACD'].loc[filtered_buy_signals], color='blue', label='Bullish Crossover', marker='^', zorder=5)
-            ax4.scatter(filtered_sell_signals, last_60_days_macd['MACD'].loc[filtered_sell_signals], color='purple', label='Bearish Crossover', marker='v', zorder=5)
+            ax4.scatter(filtered_buy_signals, last_recent_days_macd['MACD'].loc[filtered_buy_signals], color='blue', label='Bullish Crossover', marker='^', zorder=5)
+            ax4.scatter(filtered_sell_signals, last_recent_days_macd['MACD'].loc[filtered_sell_signals], color='purple', label='Bearish Crossover', marker='v', zorder=5)
 
-            ax4.plot(last_60_days_macd['MACD'], label='MACD', color='green', linewidth=1)
-            ax4.plot(last_60_days_macd['Signal_Line'], label='Signal Line', color='red', linewidth=1)
+            ax4.plot(last_recent_days_macd['MACD'], label='MACD', color='green', linewidth=1)
+            ax4.plot(last_recent_days_macd['Signal_Line'], label='Signal Line', color='red', linewidth=1)
 
-            ax4.fill_between(last_60_days_macd.index, last_60_days_macd['MACD'], last_60_days_macd['Signal_Line'], where=(last_60_days_macd['MACD'] > last_60_days_macd['Signal_Line']), color='green', alpha=0.3, interpolate=True)
-            ax4.fill_between(last_60_days_macd.index, last_60_days_macd['MACD'], last_60_days_macd['Signal_Line'], where=(last_60_days_macd['MACD'] < last_60_days_macd['Signal_Line']), color='red', alpha=0.3, interpolate=True)
+            ax4.fill_between(last_recent_days_macd.index, last_recent_days_macd['MACD'], last_recent_days_macd['Signal_Line'], where=(last_recent_days_macd['MACD'] > last_recent_days_macd['Signal_Line']), color='green', alpha=0.3)
+            ax4.fill_between(last_recent_days_macd.index, last_recent_days_macd['MACD'], last_recent_days_macd['Signal_Line'], where=(last_recent_days_macd['MACD'] < last_recent_days_macd['Signal_Line']), color='red', alpha=0.3)
 
-            ax4.set_title('Last 60 Days MACD')
+            ax4.set_title(f'Last {recent_days} Days MACD')
             ax4.set_ylabel('MACD')
             ax4.grid(True)
+            ax4.set_xlim([last_recent_days_macd.index.min(), last_recent_days_macd.index.max()])
+            plt.xticks(rotation=90)
 
-            # Set x-axis limits for the last 60 days MACD
-            ax4.set_xlim([last_60_days_macd.index.min(), last_60_days_macd.index.max()])
+            # Bottom left subplot (Full OBV with same time frame as other plots)
+            ax5 = fig.add_subplot(gs[2, 0])  # OBV for the full time range
+            ax5.plot(plot_data.index, obv_data, color='purple', label='OBV')
 
-            # Set the x-axis date labels to vertical for the bottom-right plot as well
+            ax5.set_title(f'On-Balance Volume (OBV) for {ticker}')
+            ax5.set_ylabel('OBV')
+            ax5.grid(True)
+            ax5.set_xlim([plot_data.index.min(), plot_data.index.max()])
+
+            # Bottom right subplot (OBV for the last N days)
+            ax6 = fig.add_subplot(gs[2, 1])  # OBV for the last recent_days
+            ax6.plot(last_recent_days_obv.index, last_recent_days_obv, color='purple', label='OBV')
+
+            ax6.set_title(f'Last {recent_days} Days OBV')
+            ax6.set_ylabel('OBV')
+            ax6.grid(True)
+            ax6.set_xlim([last_recent_days_obv.index.min(), last_recent_days_obv.index.max()])
             plt.xticks(rotation=90)
 
             # Adjust layout
             plt.tight_layout()
             plt.show()
+
+
+
+
+            
