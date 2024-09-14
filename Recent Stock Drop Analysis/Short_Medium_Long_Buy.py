@@ -25,6 +25,7 @@ from functions_stock_analysis import (
     date_format,
     ranking_short_term,
     plot_cumulative_frequency,
+    open_tipranks_link
 )
 
 import numpy as np
@@ -37,19 +38,96 @@ DOW30 = pd.DataFrame(get_djia_tickers())
 
 # Stock Tickers Append
 Ticker_Listing = pd.concat([SNP500, NAS100, DOW30], ignore_index=True)
-#Ticker_Listing = Ticker_Listing[0:30] # Testing (So testing doesn#t take too long)
+Ticker_Listing = Ticker_Listing[0:30] # Testing (So testing doesn#t take too long)
 Ticker_Listing = Ticker_Listing.rename(columns = {0: "Ticker"}) 
 Ticker_Listing = Ticker_Listing.drop_duplicates()
 
-# Variables 
-start_year = 6
-rsi_window = 14
-bb_window = 20
-bb_std = 2
-macd_short_window = 12
-macd_long_window = 26
-macd_signal_window = 9
-end_day = 0
+# Ask the user which strategy they want to run
+strategy = input("Choose the strategy type (short, medium, long): ").lower()
+
+# Set up variable inputs and weights based on the user's choice
+if strategy == "short":
+    # Short-term strategy
+    start_year = 1
+    rsi_window = 7
+    bb_window = 20
+    bb_std = 2
+    macd_short_window = 7
+    macd_long_window = 21
+    macd_signal_window = 7
+    atr_window = 7
+    end_day = 0
+    weights = {
+        'RSI': 0.35,
+        'MACD': 0.20,
+        'ATR': 0.10,
+        'Stochastic': 0.15,
+        'Volume': 0.10,
+        'Slope': 0.10
+    }
+
+elif strategy == "medium":
+    # Medium-term strategy
+    start_year = 2
+    rsi_window = 14
+    bb_window = 20
+    bb_std = 2
+    macd_short_window = 12
+    macd_long_window = 26
+    macd_signal_window = 9
+    atr_window = 14
+    end_day = 0
+    weights = {
+        'RSI': 0.25,
+        'MACD': 0.25,
+        'ATR': 0.15,
+        'Stochastic': 0.10,
+        'Volume': 0.10,
+        'Slope': 0.15
+    }
+
+elif strategy == "long":
+    # Long-term strategy
+    start_year = 5
+    rsi_window = 21
+    bb_window = 50
+    bb_std = 2
+    macd_short_window = 26
+    macd_long_window = 52
+    macd_signal_window = 18
+    atr_window = 21
+    end_day = 0
+    weights = {
+        'RSI': 0.10,
+        'MACD': 0.15,
+        'ATR': 0.20,
+        'Stochastic': 0.05,
+        'Volume': 0.10,
+        'Slope': 0.40
+    }
+
+else:
+    print("Invalid choice. Defaulting to medium-term strategy.")
+    # Default to medium-term strategy
+    start_year = 2
+    rsi_window = 14
+    bb_window = 20
+    bb_std = 2
+    macd_short_window = 12
+    macd_long_window = 26
+    macd_signal_window = 9
+    atr_window = 14
+    end_day = 0
+    weights = {
+        'RSI': 0.25,
+        'MACD': 0.25,
+        'ATR': 0.15,
+        'Stochastic': 0.10,
+        'Volume': 0.10,
+        'Slope': 0.15
+    }
+
+
 
 # DataFrame to hold signals
 signals_df = pd.DataFrame(columns=["Ticker", "Latest_Date", "RSI", "MACD", "Signal_Line", "Volume", "ATR", "%K", "%D"])
@@ -104,13 +182,17 @@ for ticker in Ticker_Listing["Ticker"]:
 
 
 # After collecting all the data, apply the ranking function
-signals_df = ranking_short_term(signals_df)
+signals_df = ranking_short_term(signals_df, weights)
 # Keep only the top 25 stocks
 top_25_signals_df = signals_df.head(25)
 
 
 ans = True
 while ans:
+    
+    # Set pandas options to display floats with 2 decimal places
+    pd.options.display.float_format = "{:.2f}".format
+    
     # Set pandas display options to show all rows and columns
     pd.set_option('display.max_rows', None)  # Show all rows
     pd.set_option('display.max_columns', None)  # Show all columns
@@ -130,6 +212,9 @@ while ans:
         if ticker not in top_25_signals_df["Ticker"].tolist():
             print("Error, type again")
         else:
+            # Open the TipRanks link for the selected ticker
+            open_tipranks_link(ticker)
+            
             # Retrieve data again for plotting
             plot_data = yf.download(ticker, date_format(start_year * 365), end=date_format(end_day))
             
@@ -161,8 +246,8 @@ while ans:
 
             # Create subplots for Buy and Sell signals' CDF
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-            plot_cumulative_frequency(buy_data, 'Buy', ax1)
-            plot_cumulative_frequency(sell_data, 'Sell', ax2)
+            plot_cumulative_frequency(buy_data, 'Buy', ax1, ticker)
+            plot_cumulative_frequency(sell_data, 'Sell', ax2, ticker)
             plt.tight_layout()
             plt.show()
 
@@ -173,7 +258,7 @@ while ans:
             last_60_days_macd = macd_data[-60:]
             
             # Create a GridSpec layout: 2 rows, 2 columns, with 2/3 for the left and 1/3 for the right
-            fig = plt.figure(figsize=(16, 10))
+            fig = plt.figure(figsize=(16, 10), dpi = 250)
             gs = gridspec.GridSpec(2, 2, width_ratios=[2, 1], height_ratios=[2, 2])
 
             # Top left subplot (full price and Bollinger Bands)
